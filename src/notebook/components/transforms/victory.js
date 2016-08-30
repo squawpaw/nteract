@@ -13,7 +13,8 @@ import * as V from 'victory';
     {x: 3, y: 3},
     {x: 4, y: 2},
     {x: 5, y: 1}
-  ]
+  ],
+  ...innerProps
 }
 
 */
@@ -26,7 +27,7 @@ const VictoryTransform = (props) => {
   const VictoryComponent = V[payload.name];
 
   return (
-    <VictoryComponent data={payload.data} />
+    <VictoryComponent {...payload} />
   );
 };
 
