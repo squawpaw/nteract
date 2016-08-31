@@ -91,6 +91,9 @@
     "tmp": "0.0.28",
     "transformime-react": "^1.0.2",
     "uuid": "^2.0.2",
+    "vega": "^2.6.3",
+    "vega-embed": "^2.2.0",
+    "vega-lite": "^1.2.0",
     "victory": "^0.11.0",
     "yargs": "^5.0.0"
   },
