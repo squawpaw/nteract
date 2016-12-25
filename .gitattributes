@@ -1,0 +1,2 @@
+# Normalize line endings to prevent eslint errors on Windows.
+*.js text eol=lf

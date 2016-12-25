@@ -1,8 +1,6 @@
+/* @flow */
 import React from 'react';
-import ReactDOM from 'react-dom';
-import PureRenderMixin from 'react-addons-pure-render-mixin';
-
-import Immutable from 'immutable';
+import { List as ImmutableList, Map as ImmutableMap } from 'immutable';
 
 import CodeCell from './code-cell';
 import MarkdownCell from './markdown-cell';
@@ -12,32 +10,47 @@ import {
   focusCell,
   focusPreviousCell,
   focusNextCell,
+  focusCellEditor,
+  focusPreviousCellEditor,
+  focusNextCellEditor,
 } from '../../actions';
 
-export class Cell extends React.Component {
-  static propTypes = {
-    cell: React.PropTypes.any,
-    displayOrder: React.PropTypes.instanceOf(Immutable.List),
-    cellStatus: React.PropTypes.instanceOf(Immutable.Map),
-    id: React.PropTypes.string,
-    getCompletions: React.PropTypes.func,
-    focusedCell: React.PropTypes.string,
-    language: React.PropTypes.string,
-    onCellChange: React.PropTypes.func,
-    running: React.PropTypes.bool,
-    theme: React.PropTypes.string,
-    pagers: React.PropTypes.instanceOf(Immutable.List),
-    transforms: React.PropTypes.instanceOf(Immutable.Map),
-  };
+export type CellProps = {
+  cell: any,
+  displayOrder: ImmutableList<any>,
+  id: string,
+  cellFocused: string,
+  editorFocused: string,
+  language: string,
+  running: boolean,
+  theme: string,
+  cursorBlinkRate: number,
+  pagers: ImmutableList<any>,
+  transforms: ImmutableMap<string, any>,
+};
+
+type State = {
+  hoverCell: boolean,
+}
+
+export class Cell extends React.PureComponent {
+  props: CellProps;
+  state: State;
+  selectCell: () => void;
+  focusAboveCell: () => void;
+  focusBelowCell: () => void;
+  focusCellEditor: () => void;
+  setCellHoverState: (mouseEvent: MouseEvent) => void;
+  cellDiv: HTMLElement;
 
   static contextTypes = {
     store: React.PropTypes.object,
   };
 
-  constructor() {
+  constructor(): void {
     super();
-    this.shouldComponentUpdate = PureRenderMixin.shouldComponentUpdate.bind(this);
     this.selectCell = this.selectCell.bind(this);
+    this.focusCellEditor = this.focusCellEditor.bind(this);
     this.focusAboveCell = this.focusAboveCell.bind(this);
     this.focusBelowCell = this.focusBelowCell.bind(this);
     this.setCellHoverState = this.setCellHoverState.bind(this);
@@ -47,7 +60,7 @@ export class Cell extends React.Component {
     hoverCell: false,
   };
 
-  componentWillMount() {
+  componentDidMount(): void {
     // Listen to the page level mouse move event and manually check for
     // intersection because we don't want the hover region to actually capture
     // any mouse events.  The hover region is an invisible element that
@@ -55,48 +68,53 @@ export class Cell extends React.Component {
     document.addEventListener('mousemove', this.setCellHoverState, false);
   }
 
-  componentWillUnmount() {
+  componentWillUnmount(): void {
     document.removeEventListener('mousemove', this.setCellHoverState);
   }
 
-  setCellHoverState(mouseEvent) {
-    if (this.refs.cell) {
-      const cell = ReactDOM.findDOMNode(this.refs.cell);
-      if (cell) {
-        const x = mouseEvent.clientX;
-        const y = mouseEvent.clientY;
-        const regionRect = cell.getBoundingClientRect();
-        const hoverCell = (regionRect.left < x && x < regionRect.right) &&
-                     (regionRect.top < y && y < regionRect.bottom);
-        this.setState({ hoverCell });
-      }
+  setCellHoverState(mouseEvent: MouseEvent): void {
+    const x = mouseEvent.clientX;
+    const y = mouseEvent.clientY;
+    const regionRect = this.cellDiv.getBoundingClientRect();
+    const hoverCell = (regionRect.left < x && x < regionRect.right) &&
+                 (regionRect.top < y && y < regionRect.bottom);
+
+    if (this.state.hoverCell !== hoverCell) {
+      this.setState({ hoverCell });
     }
   }
 
-  selectCell() {
+  selectCell(): void {
     this.context.store.dispatch(focusCell(this.props.id));
   }
 
-  focusAboveCell() {
+  focusCellEditor(): void {
+    this.context.store.dispatch(focusCellEditor(this.props.id));
+  }
+
+  focusAboveCell(): void {
     this.context.store.dispatch(focusPreviousCell(this.props.id));
+    this.context.store.dispatch(focusPreviousCellEditor(this.props.id));
   }
 
-  focusBelowCell() {
-    this.context.store.dispatch(focusNextCell(this.props.id));
+  focusBelowCell(): void {
+    this.context.store.dispatch(focusNextCell(this.props.id, true));
+    this.context.store.dispatch(focusNextCellEditor(this.props.id));
   }
 
-  render() {
+  render(): ?React.Element<any> {
     const cell = this.props.cell;
     const type = cell.get('cell_type');
-    const focused = this.props.focusedCell === this.props.id;
+    const cellFocused = this.props.cellFocused === this.props.id;
+    const editorFocused = this.props.editorFocused === this.props.id;
     return (
       <div
-        className={`cell ${type === 'markdown' ? 'text' : 'code'} ${focused ? 'focused' : ''}`}
+        className={`cell ${type === 'markdown' ? 'text' : 'code'} ${cellFocused ? 'focused' : ''}`}
         onClick={this.selectCell}
-        ref="cell"
+        ref={(el) => { this.cellDiv = el; }}
       >
         {
-          focused ? <Toolbar
+          cellFocused ? <Toolbar
             type={type}
             cell={cell}
             id={this.props.id}
@@ -107,26 +125,29 @@ export class Cell extends React.Component {
           <MarkdownCell
             focusAbove={this.focusAboveCell}
             focusBelow={this.focusBelowCell}
-            focused={focused}
+            focusEditor={this.focusCellEditor}
+            cellFocused={cellFocused}
+            editorFocused={editorFocused}
             cell={cell}
             id={this.props.id}
             theme={this.props.theme}
+            cursorBlinkRate={this.props.cursorBlinkRate}
           /> :
-          <CodeCell
-            focusAbove={this.focusAboveCell}
-            focusBelow={this.focusBelowCell}
-            focused={focused}
-            cell={cell}
-            id={this.props.id}
-            theme={this.props.theme}
-            language={this.props.language}
-            displayOrder={this.props.displayOrder}
-            cellStatus={this.props.cellStatus}
-            transforms={this.props.transforms}
-            pagers={this.props.pagers}
-            running={this.props.running}
-            getCompletions={this.props.getCompletions}
-          />
+            <CodeCell
+              focusAbove={this.focusAboveCell}
+              focusBelow={this.focusBelowCell}
+              cellFocused={cellFocused}
+              editorFocused={editorFocused}
+              cell={cell}
+              id={this.props.id}
+              theme={this.props.theme}
+              cursorBlinkRate={this.props.cursorBlinkRate}
+              language={this.props.language}
+              displayOrder={this.props.displayOrder}
+              transforms={this.props.transforms}
+              pagers={this.props.pagers}
+              running={this.props.running}
+            />
         }
       </div>
     );

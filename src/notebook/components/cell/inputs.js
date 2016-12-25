@@ -1,25 +1,19 @@
-import React, { PropTypes } from 'react';
-import PureRenderMixin from 'react-addons-pure-render-mixin';
+// @flow
+import React from 'react';
 
-export default class Inputs extends React.Component {
-  static propTypes = {
-    executionCount: PropTypes.any,
-    running: PropTypes.bool,
-  };
+type Props = {
+  executionCount: any,
+  running: boolean,
+};
 
-  constructor(props) {
-    super(props);
-    this.shouldComponentUpdate = PureRenderMixin.shouldComponentUpdate.bind(this);
-  }
+export default function Inputs(props: Props): ?React.Element<any> {
+  const { executionCount, running } = props;
+  const count = !executionCount ? ' ' : executionCount;
+  const input = running ? '*' : count;
 
-  render() {
-    const { executionCount, running } = this.props;
-    const count = !executionCount ? ' ' : executionCount;
-    const input = running ? '*' : count;
-    return (
-      <div className="prompt">
-        [{input}]
-      </div>
-    );
-  }
+  return (
+    <div className="prompt">
+      [{input}]
+    </div>
+  );
 }

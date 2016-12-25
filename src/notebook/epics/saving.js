@@ -1,36 +1,29 @@
+import { ActionsObservable } from 'redux-observable';
+import { writeFileObservable } from '../../utils/fs';
+import {
+  SAVE,
+  SAVE_AS,
+} from '../constants';
+
+import {
+  changeFilename,
+  save,
+  doneSaving,
+} from '../actions';
+
 const Rx = require('rxjs/Rx');
-const fs = require('fs');
 const commutable = require('commutable');
 
 const Observable = Rx.Observable;
 
-// Extracted out for readability, but you don't have to or you can use
-// something like the rxjs-fs package
-const writeFileObservable = (filename, data, ...args) =>
-  Observable.create(observer => {
-    fs.writeFile(filename, data, ...args, error => {
-      if (error) {
-        observer.error(error);
-      } else {
-        observer.next({ filename, data });
-        observer.complete();
-      }
-    });
-  });
-
-export const SAVE = 'SAVE';
-export const SAVE_AS = 'SAVE_AS';
-export const CHANGE_FILENAME = 'CHANGE_FILENAME';
-export const DONE_SAVING = 'DONE_SAVING';
-
-export const changeFilename = filename => ({ type: CHANGE_FILENAME, filename });
-export const save = (filename, notebook) => ({ type: SAVE, filename, notebook });
-export const saveAs = (filename, notebook) => ({ type: SAVE_AS, filename, notebook });
-export const doneSaving = () => ({ type: DONE_SAVING });
-
-export const saveEpic = actions =>
-  actions.ofType(SAVE)
-    .do(action => {
+/**
+  * Cleans up the notebook document and saves the file.
+  *
+  * @param  {ActionObservable}  action$ The SAVE action with the filename and notebook
+  */
+export function saveEpic(action$) {
+  return action$.ofType(SAVE)
+    .do((action) => {
       // If there isn't a filename, save-as it instead
       if (!action.filename) {
         throw new Error('save needs a filename');
@@ -38,16 +31,39 @@ export const saveEpic = actions =>
     })
     .mergeMap(action =>
       writeFileObservable(action.filename,
-        JSON.stringify(commutable.toJS(action.notebook), null, 1))
+        JSON.stringify(
+          commutable.toJS(
+            action.notebook.update('cellMap', cells =>
+              cells.map(value =>
+                value.deleteIn(['metadata', 'inputHidden'])
+                  .deleteIn(['metadata', 'outputHidden'])
+                  .deleteIn(['metadata', 'status'])))),
+          null,
+          1))
+        .catch((error) => {
+          const input$ = Observable.of({
+            type: 'ERROR',
+            payload: error,
+            error: true,
+          });
+          return new ActionsObservable(input$);
+        })
         .map(doneSaving)
         // .startWith({ type: START_SAVING })
         // since SAVE effectively acts as the same as START_SAVING
         // you could just look for that in your reducers instead of START_SAVING
     );
+}
 
-export const saveAsEpic = actions =>
-  actions.ofType(SAVE_AS)
+/**
+  * Sets the filename for a notebook before saving.
+  *
+  * @param  {ActionObservable}  action$ The SAVE_AS action with the filename and notebook
+  */
+export function saveAsEpic(action$) {
+  return action$.ofType(SAVE_AS)
     .mergeMap(action => [
       changeFilename(action.filename),
       save(action.filename, action.notebook),
     ]);
+}

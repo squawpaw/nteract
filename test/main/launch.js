@@ -1,32 +1,27 @@
 import { expect } from 'chai';
 
-import { launchNewNotebook } from '../../build/main/launch';
-import {ipcMain as ipc} from 'electron';
+import { launch } from '../../lib/main/launch';
+
+const ipc = require('electron').ipcMain;
 
 describe('launch', () => {
-  describe('launchNewNotebook', () => {
-    it('launches a window', function() {
-      // The render window may take a while to display on slow machines.
-      // Set the timeout to 5s
-      this.timeout(5000);
+  it('launches a notebook', function(done) {
+    // Note that we can't use => functions because we need `this` to be mocha's
+    this.timeout(10000);
 
-      return launchNewNotebook().then(win => {
-        expect(win).to.not.be.undefined;
-        return new Promise(resolve => {
-
-          // Query selector all and make sure the length for .cells is
-          // greater than 0.  Use IPC to return the results from the
-          // render window.
-          ipc.on('queryLength', function (event, value) {
-            expect(value).to.be.greaterThan(0);
-            resolve();
-          });
-          win.webContents.executeJavaScript(`
-            var ipc = require('electron').ipcRenderer;
-            ipc.send('queryLength', document.querySelectorAll('div.cell').length);
-          `);
-        });
-      });
+    let win;
+    ipc.on('nteract:ping:kernel', (event, kernel) => {
+      win.close();
+      expect(kernel === 'inodejs' || kernel === 'python3').to.be.true;
+      done();
     });
-  });
-});
+
+    win = launch('example-notebooks/intro.ipynb');
+    win.hide(); // To make it nicer to run locally
+
+    setTimeout(() => {
+      expect.fail('nteract:ping:kernel', null, 'Expected nteract:ping:kernel to be sent from frontend');
+      done();
+    }, 8000)
+  })
+})

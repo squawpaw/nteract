@@ -1,17 +1,10 @@
 import { remote } from 'electron';
 
-import home from 'home-dir';
-import fs from 'fs';
 import path from 'path';
-import { fromJS } from 'commutable';
 
 import Rx from 'rxjs/Rx';
 
-import { deferURL } from '../main/launch';
-
-
-const HOME = home();
-const { BrowserWindow, getCurrentWindow } = remote;
+const HOME = remote.app.getPath('home');
 
 /**
  * Turn a path like /Users/n/mine.ipynb to ~/mine.ipynb
@@ -26,66 +19,59 @@ export function tildify(p) {
   return (s.indexOf(HOME) === 0 ? s.replace(HOME + path.sep, `~${path.sep}`) : s).slice(0, -1);
 }
 
-export function initNativeHandlers(store) {
-  Rx.Observable.from(store)
-    .map(state => {
-      const modified = state.app.get('modified');
-      const executionState = state.app.get('executionState');
-      const filename = tildify(state.metadata.get('filename')) || 'Untitled';
-      const displayName = state.document
-        .getIn(['notebook', 'metadata', 'kernelspec', 'display_name'], '...');
+export function setTitleFromAttributes(attributes) {
+  const filename = tildify(attributes.fullpath);
+  const { executionState } = attributes;
 
-      return {
-        title: `${filename} - ${displayName} - ${executionState} ${modified ? '*' : ''}`,
-        path: filename,
-      };
-    })
+  const win = remote.getCurrentWindow();
+  if (filename && win.setRepresentedFilename) {
+    win.setRepresentedFilename(attributes.fullpath);
+    win.setDocumentEdited(attributes.modified);
+  }
+  const title = `${filename} - ${executionState}`;
+  win.setTitle(title);
+}
+
+export function createTitleFeed(state$) {
+  const modified$ = state$
+    .map(state => ({
+      // Assume not modified to start
+      modified: false,
+      notebook: state.document.get('notebook'),
+    }))
+    .distinctUntilChanged(last => last.notebook)
+    .scan((last, current) => ({
+      // We're missing logic for saved...
+      // All we know is if it was modified from last time
+      // The logic should be
+      //    modified: saved.notebook !== current.notebook
+      //        we don't have saved.notebook here
+      modified: last.notebook !== current.notebook,
+      notebook: current.notebook,
+    }))
+    .pluck('modified');
+
+
+  const fullpath$ = state$
+    .map(state => state.metadata.get('filename') || 'Untitled');
+
+  const executionState$ = state$
+    .map(state => state.app.get('executionState'))
+    .debounceTime(200);
+
+  return Rx.Observable
+    .combineLatest(
+      modified$,
+      fullpath$,
+      executionState$,
+      (modified, fullpath, executionState) => ({ modified, fullpath, executionState })
+    )
     .distinctUntilChanged()
-    .debounceTime(200)
-    .subscribe(res => {
-      const win = getCurrentWindow();
-      // TODO: Investigate if setRepresentedFilename() is a no-op on non-OS X
-      if (res.path && win.setRepresentedFilename) {
-        // TODO: this needs to be the full path to the file
-        win.setRepresentedFilename(res.path);
-      }
-      win.setTitle(res.title);
-    });
+    .switchMap(i => Rx.Observable.of(i));
 }
 
-function launch(notebook, filename) {
-  // TODO: This code is also done in main and we need to make sure it's consistent
-  //       Rely on sourcing from ../main/{something}
-  let win = new BrowserWindow({
-    width: 800,
-    height: 1000,
-    title: !filename ? 'Untitled' : path.relative('.', filename.replace(/.ipynb$/, '')),
-  });
-
-  const index = path.join(__dirname, '..', '..', '..', 'static', 'index.html');
-  win.loadURL(`file://${index}`);
-
-  win.webContents.on('did-finish-load', () => {
-    win.webContents.send('main:load', { notebook: notebook.toJS(), filename });
-  });
-
-  win.webContents.on('will-navigate', deferURL);
-
-  win.on('closed', () => {
-    win = null;
-  });
-
-  return win;
-}
-
-export function launchFilename(filename) {
-  return new Promise((resolve, reject) => {
-    fs.readFile(filename, {}, (err, data) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(launch(fromJS(JSON.parse(data)), filename));
-      }
-    });
-  });
+export function initNativeHandlers(store) {
+  const state$ = Rx.Observable.from(store);
+  return createTitleFeed(state$)
+    .subscribe(setTitleFromAttributes, err => console.error(err));
 }

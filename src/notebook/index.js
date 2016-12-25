@@ -1,20 +1,18 @@
+// @flow
 import React from 'react';
 import ReactDOM from 'react-dom';
-import PureRenderMixin from 'react-addons-pure-render-mixin';
 
 import { Provider } from 'react-redux';
 
-import NotificationSystem from 'react-notification-system';
+import { Map as ImmutableMap } from 'immutable';
 
-import { ipcRenderer as ipc } from 'electron';
-import storage from 'electron-json-storage';
+import NotificationSystem from 'react-notification-system';
 
 import configureStore from './store';
 import { reducers } from './reducers';
 import Notebook from './components/notebook';
 
 import {
-  setNotebook,
   setNotificationSystem,
 } from './actions';
 
@@ -22,82 +20,55 @@ import { initMenuHandlers } from './menu';
 import { initNativeHandlers } from './native-window';
 import { initGlobalHandlers } from './global-events';
 
-import { AppRecord, DocumentRecord, MetadataRecord } from './records';
+import {
+  AppRecord,
+  DocumentRecord,
+  MetadataRecord,
+  CommsRecord,
+} from './records';
 
-const Github = require('github');
+const store = configureStore({
+  app: new AppRecord(),
+  metadata: new MetadataRecord(),
+  document: new DocumentRecord(),
+  comms: new CommsRecord(),
+  config: new ImmutableMap({
+    theme: 'light',
+  }),
+}, reducers);
 
-const github = new Github();
+// Register for debugging
+window.store = store;
 
-if (process.env.GITHUB_TOKEN) {
-  github.authenticate({
-    type: 'oauth',
-    token: process.env.GITHUB_TOKEN,
-  }, (x) => console.error(x));
-}
+initNativeHandlers(store);
+initMenuHandlers(store);
+initGlobalHandlers(store);
 
-ipc.on('main:load', (e, launchData) => {
-  const store = configureStore({
-    app: new AppRecord({
-      github,
-    }),
-    metadata: new MetadataRecord({
-      filename: launchData.filename,
-    }),
-    document: new DocumentRecord(),
-  }, reducers);
+class App extends React.PureComponent {
+  props: Object;
+  state: Object;
+  notificationSystem: NotificationSystem;
 
-  // Register for debugging
-  window.store = store;
-
-  initNativeHandlers(store);
-  initMenuHandlers(store);
-  initGlobalHandlers(store);
-
-  class App extends React.Component {
-    constructor(props) {
-      super(props);
-      this.shouldComponentUpdate = PureRenderMixin.shouldComponentUpdate.bind(this);
-      this.state = {
-        theme: 'light',
-      };
-      storage.get('theme', (error, data) => {
-        if (error) throw error;
-        if (Object.keys(data).length === 0) return;
-        this.setState({
-          theme: data.theme,
-        });
-      });
-      ipc.on('menu:theme', (ev, theme) => {
-        storage.set('theme', { theme });
-        this.setState({ theme });
-      });
-    }
-    componentDidMount() {
-      store.dispatch(setNotificationSystem(this.refs.notificationSystem));
-      const state = store.getState();
-      const filename = (state && state.metadata.filename) || launchData.filename;
-      store.dispatch(setNotebook(launchData.notebook, filename));
-    }
-    render() {
-      return (
-        <Provider store={store}>
-          <div>
-            {
-              this.state.err &&
-                <pre>{this.state.err.toString()}</pre>
-            }
-            <Notebook />
-            <NotificationSystem ref="notificationSystem" />
-            <link rel="stylesheet" href="../static/styles/main.css" />
-            <link rel="stylesheet" href={`../static/styles/theme-${this.state.theme}.css`} />
-          </div>
-        </Provider>
-      );
-    }
+  componentDidMount(): void {
+    store.dispatch(setNotificationSystem(this.notificationSystem));
   }
 
-  ReactDOM.render(
-    <App />,
-    document.querySelector('#app')
-  );
-});
+  render(): ?React.Element<any> { // eslint-disable-line class-methods-use-this
+    return (
+      <Provider store={store}>
+        <div>
+          <Notebook />
+          <NotificationSystem
+            ref={(notificationSystem) => { this.notificationSystem = notificationSystem; }}
+          />
+          <link rel="stylesheet" href="../static/styles/main.css" />
+        </div>
+      </Provider>
+    );
+  }
+}
+
+ReactDOM.render(
+  <App />,
+  document.querySelector('#app')
+);

@@ -1,51 +1,61 @@
+/* eslint class-methods-use-this: 0 */
+// @flow
 import React from 'react';
-import PureRenderMixin from 'react-addons-pure-render-mixin';
 import { connect } from 'react-redux';
 
 import {
   createCellAfter,
   createCellBefore,
   createCellAppend,
-  mergeCellAfter } from '../../actions';
+  mergeCellAfter,
+} from '../../actions';
 
-export class CellCreatorButtons extends React.Component {
-  static propTypes = {
-    above: React.PropTypes.bool,
-    id: React.PropTypes.string,
-    dispatch: React.PropTypes.func,
+type Props = {
+  above: boolean,
+  id: string,
+};
+
+export class CellCreatorButtons extends React.PureComponent {
+  props: Props;
+  createCodeCell: (type: string) => void;
+  createTextCell: (type: string) => void;
+  createCell: (type: string) => void;
+  mergeCell: () => void;
+
+  static contextTypes = {
+    store: React.PropTypes.object,
   };
 
-  constructor() {
+  constructor(): void {
     super();
-    this.shouldComponentUpdate = PureRenderMixin.shouldComponentUpdate.bind(this);
     this.createCodeCell = this.createCell.bind(this, 'code');
     this.createTextCell = this.createCell.bind(this, 'markdown');
     this.createCell = this.createCell.bind(this);
     this.mergeCell = this.mergeCell.bind(this);
   }
 
-  shouldComponentUpdate() {
+  shouldComponentUpdate(): boolean {
     return false;
   }
 
-  createCell(type) {
+  createCell(type: string): void {
     if (!this.props.id) {
-      this.props.dispatch(createCellAppend(type));
+      this.context.store.dispatch(createCellAppend(type));
       return;
     }
 
     if (this.props.above) {
-      this.props.dispatch(createCellBefore(type, this.props.id));
+      this.context.store.dispatch(createCellBefore(type, this.props.id));
     } else {
-      this.props.dispatch(createCellAfter(type, this.props.id));
+      this.context.store.dispatch(createCellAfter(type, this.props.id));
     }
   }
 
-  mergeCell() {
-    this.props.dispatch(mergeCellAfter(this.props.id));
+  mergeCell(): void {
+    this.context.store.dispatch(mergeCellAfter(this.props.id));
   }
 
-  render() {
+  render(): ?React.Element<any> {
     const mergeButton = (
       <button onClick={this.mergeCell} title="merge cells">
         <span className="octicon octicon-arrow-up" />

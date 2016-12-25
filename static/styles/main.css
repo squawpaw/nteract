@@ -50,10 +50,38 @@ img
     margin-left: auto;
 }
 
+table {
+    border-collapse: collapse;
+}
+
 th,
 td {
     padding: 0.5em 1em;
     border: 1px solid var(--primary-border);
+}
+
+th {
+    text-align: left;
+}
+
+blockquote{
+  padding: .75em .5em .75em 1em;
+  background: var(--main-bg-color);
+  border-left: 0.5em solid #DDD;
+}
+
+blockquote::before {
+  display: block;
+  height: 0;
+  content: "“";
+  margin-left: -.95em;
+  font: italic 400%/1 Open Serif,Georgia,"Times New Roman", serif;
+  color: solid var(--primary-border);
+}
+
+/* for nested paragraphs in block quotes */
+blockquote p {
+  display: inline;
 }
 
 /*
@@ -128,8 +156,7 @@ td {
 .cell-toolbar
 {
     display: inline-box;
-    background: var(--main-bg-color);
-    background-color: rgba(255, 255, 255, 0.3);
+    background-color: var(--toolbar-bg);
 }
 
 .cell-toolbar button
@@ -152,7 +179,6 @@ td {
 {
     font-size: 15px;
     line-height: 1;
-
     color: var(--toolbar-button);
 
 }
@@ -205,6 +231,7 @@ td {
 {
     word-wrap: break-word;
     padding: 10px 10px 10px calc(var(--prompt-width) + 10px);
+    overflow-y: auto;
 }
 
 .outputs>div:empty
@@ -216,6 +243,10 @@ td {
 {
     display: flex;
     flex-direction: row;
+}
+
+.cell .input-container.invisible {
+    height: 34px;
 }
 
 .cell .prompt
@@ -325,8 +356,8 @@ code {
 
 .CodeMirror-scroll
 {
-    overflow-x: auto;
-    overflow-y: hidden;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
 }
 
 .CodeMirror-lines
@@ -384,12 +415,11 @@ code {
 .cm-s-composition span.cm-operator { color: var(--cm-operator); }
 .cm-s-composition span.cm-def { color: var(--cm-def); }
 .cm-s-composition .CodeMirror-activeline-background { background: var(--cm-activeline-bg); }
-.cm-s-composition .CodeMirror-matchingbracket { outline:1px solid var(--cm-matchingbracket-outline); color: var(--cm-matchingbracket-color) !important; }
+.cm-s-composition .CodeMirror-matchingbracket { border-bottom: 1px solid var(--cm-matchingbracket-outline); color: var(--cm-matchingbracket-color) !important; }
 
 /* Overwrite some of the hint Styling */
 
 .CodeMirror-hints {
-
   -webkit-box-shadow: 2px 3px 5px rgba(0,0,0,.2);
   -moz-box-shadow: 2px 3px 5px rgba(0,0,0,.2);
   box-shadow: 2px 3px 5px rgba(0,0,0,.2);
@@ -406,7 +436,6 @@ code {
 
 .CodeMirror-hint {
   border-radius: 0px;
-  max-width: 19em;
   white-space: pre;
   cursor: pointer;
   color: var(--cm-hint-color);
@@ -425,32 +454,110 @@ li.CodeMirror-hint-active {
     display: none;
     opacity:  1.0;
     position: absolute;
-    left: 8px;
-    border-color: gray;
-    border-width: 1px;
-    border-style: solid;
-    background-color: #FFF;
-    padding: 10px;
-    padding-top: 0px;
-    padding-right: 0px;
+    top: 0.2em;
+    right: 0;
+    border-style: none;
+    padding: 0;
     font-size: 11px;
+    line-height: 1.5;
     margin: 20px 0;
-    background-color: rgba(255,255,255,1);
+    background-color: var(--dropdown-content);
 }
 
 .dropdown__content ul {
     list-style: none;
     text-align: left;
-    padding-left: 5px;
+    padding: 0;
+    margin: 0;
     opacity: 1.0;
 }
 
-.dropdown__content ul li:hover {
-    background-color: #ecf0f1;
+.dropdown__content li {
+  padding: 0.5rem;
+}
+
+.dropdown__content li:hover {
+    background-color: var(--dropdown-content-hover);
     cursor: pointer;
 }
 
 .dropdown--active .dropdown__content {
     display: inline-block;
     opacity: 1.0;
+}
+
+/*
+ * The following were written to help with the R kernel formatting. We need to
+ * write something general for nested HTML like the R kernel does for data
+ */
+
+dd {
+    display: block;
+    -webkit-margin-start: 40px
+}
+dl {
+    display: block;
+    -webkit-margin-before: 1__qem;
+    -webkit-margin-after: 1em;
+    -webkit-margin-start: 0;
+    -webkit-margin-end: 0;
+}
+dt {
+    display: block
+}
+
+dl {
+  width: 100%;
+  overflow: hidden;
+  padding: 0;
+  margin: 0
+}
+dt {
+  font-weight: bold;
+  float: left;
+  width: 20%;
+  /* adjust the width; make sure the total of both is 100% */
+  padding: 0;
+  margin: 0
+}
+dd {
+  float: left;
+  width: 80%;
+  /* adjust the width; make sure the total of both is 100% */
+  padding: 0;
+  margin: 0
+}
+
+/* No dangling (1.) */
+li:only-child {
+  list-style-type: none;
+}
+
+.list-inline li {
+  display: inline;
+  padding-right: 20px;
+  text-align: center;
+}
+
+/* End R Kernel adaptations */
+
+/* Styling for status bar */
+.pull-right {
+    float: right;
+    padding-right: 10px;
+}
+
+.pull-left {
+    display: block;
+    padding-left: 10px;
+}
+
+.status-bar {
+    position: fixed;
+    bottom: 0;
+    width: 100%;
+    font-size: 12px;
+    line-height: 0.5em;
+    background: var(--status-bar);
+    z-index: 99;
 }
