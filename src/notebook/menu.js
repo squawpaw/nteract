@@ -6,21 +6,18 @@ import {
 
 import * as path from 'path';
 
-import { tildify, launchFilename } from './native-window';
-
-import { executeCell } from './epics/execute';
+import {
+  load,
+  newNotebook,
+} from './epics/loading';
 
 import {
-  setTheme,
-} from './epics/theming';
+  loadConfig,
+} from './epics/config';
 
 import {
-  PUBLISH_GIST,
-} from './epics/github-publish';
-
-
-import {
-  clearCellOutput,
+  executeCell,
+  clearOutputs,
   newKernel,
   killKernel,
   interruptKernel,
@@ -28,16 +25,18 @@ import {
   cutCell,
   pasteCell,
   createCellAfter,
+  setGithubToken,
+  changeInputVisibility,
+  setTheme,
+  setCursorBlink,
+  save,
+  saveAs,
 } from './actions';
 
 import {
-  save,
-  saveAs,
-} from './epics/saving';
-
-import { copyNotebook } from './utils';
-
-const BrowserWindow = remote.BrowserWindow;
+  defaultPathFallback,
+  cwdKernelFallback,
+} from './path';
 
 export function dispatchSaveAs(store, evt, filename) {
   const state = store.getState();
@@ -45,16 +44,16 @@ export function dispatchSaveAs(store, evt, filename) {
   store.dispatch(saveAs(filename, notebook));
 }
 
-const remoteElectron = remote.require('electron');
-const dialog = remoteElectron.dialog;
+const dialog = remote.dialog;
 
-export function showSaveAsDialog(defaultPath) {
+export function showSaveAsDialog() {
   return new Promise((resolve) => {
-    const filename = dialog.showSaveDialog({
+    const opts = Object.assign({
       title: 'Save Notebook',
-      defaultPath,
       filters: [{ name: 'Notebooks', extensions: ['ipynb'] }],
-    });
+    }, defaultPathFallback());
+
+    const filename = dialog.showSaveDialog(opts);
 
     if (filename && path.extname(filename) === '') {
       resolve(`${filename}.ipynb`);
@@ -63,19 +62,58 @@ export function showSaveAsDialog(defaultPath) {
   });
 }
 
+export function triggerWindowRefresh(store, filename) {
+  if (!filename) {
+    return;
+  }
+  const state = store.getState();
+  const notebook = state.document.get('notebook');
+  store.dispatch(saveAs(filename, notebook));
+}
+
+export function dispatchRestartKernel(store) {
+  const state = store.getState();
+  const notificationSystem = state.app.get('notificationSystem');
+
+  let cwd = cwdKernelFallback();
+  if (state && state.document && state.metadata.get('filename')) {
+    cwd = path.dirname(path.resolve(state.metadata.filename));
+  }
+
+  store.dispatch(killKernel);
+  store.dispatch(newKernel(state.app.kernelSpecName, cwd));
+
+  notificationSystem.addNotification({
+    title: 'Kernel Restarted',
+    message: `Kernel ${state.app.kernelSpecName} has been restarted.`,
+    dismissible: true,
+    position: 'tr',
+    level: 'success',
+  });
+}
+
+export function triggerKernelRefresh(store) {
+  dialog.showMessageBox({
+    type: 'question',
+    buttons: ['Launch New Kernel', 'Don\'t Launch New Kernel'],
+    title: 'New Kernel Needs to Be Launched',
+    message: 'It looks like you\'ve saved your notebook file to a new location.',
+    detail: 'The kernel executing your code thinks your notbook is still in the ' +
+      'old location. Would you like to launch a new kernel to match it with the ' +
+      'new location of the notebook?',
+  }, (index) => {
+    if (index === 0) {
+      dispatchRestartKernel(store);
+    }
+  });
+}
+
 export function triggerSaveAs(store) {
   showSaveAsDialog()
-    .then(filename => {
-      if (!filename) {
-        return;
-      }
-      const state = store.getState();
-      const executionState = state.app.get('executionState');
-      const notebook = state.document.get('notebook');
-      store.dispatch(saveAs(filename, notebook));
-      BrowserWindow.getFocusedWindow().setTitle(`${tildify(filename)} - ${executionState}`);
-    }
-  );
+    .then((filename) => {
+      triggerWindowRefresh(store, filename);
+      triggerKernelRefresh(store);
+    });
 }
 
 export function dispatchSave(store) {
@@ -105,24 +143,57 @@ export function dispatchSave(store) {
 
 export function dispatchNewKernel(store, evt, name) {
   const state = store.getState();
-  const spawnOptions = {};
+  let cwd = cwdKernelFallback();
   if (state && state.document && state.metadata.get('filename')) {
-    spawnOptions.cwd = path.dirname(path.resolve(state.metadata.get('filename')));
+    cwd = path.dirname(path.resolve(state.metadata.get('filename')));
   }
-  store.dispatch(newKernel(name, spawnOptions));
+  store.dispatch(newKernel(name, cwd));
 }
 
-export function dispatchPublishGist(store) {
-  store.dispatch({ type: PUBLISH_GIST });
+export function dispatchPublishAnonGist(store) {
+  store.dispatch({ type: 'PUBLISH_ANONYMOUS_GIST' });
+}
+
+export function dispatchPublishUserGist(store, event, githubToken) {
+  if (githubToken) {
+    store.dispatch(setGithubToken(githubToken));
+  }
+  store.dispatch({ type: 'PUBLISH_USER_GIST' });
+}
+
+/**
+ * Redux dispatch function to run the focused cell and all cells below it.
+ * It obtains the focused cell cell id and all code cell cell ids below.
+ * It dispatches the {@link executeCell} action on all of those retrieved cells.
+ *
+ * @exports
+ * @param {Object} store - The Redux store
+ */
+export function dispatchRunAllBelow(store) {
+  const state = store.getState();
+  const focusedCellId = state.document.get('cellFocused');
+  const notebook = state.document.get('notebook');
+  const indexOfFocusedCell = notebook.get('cellOrder').indexOf(focusedCellId);
+  const cellsBelowFocusedId = notebook.get('cellOrder').skip(indexOfFocusedCell);
+  const cells = notebook.get('cellMap');
+
+  cellsBelowFocusedId.filter(cellID =>
+    cells.getIn([cellID, 'cell_type']) === 'code')
+      .map(cellID => store.dispatch(
+        executeCell(
+          cellID,
+          cells.getIn([cellID, 'source'])
+        )
+  ));
 }
 
 export function dispatchRunAll(store) {
   const state = store.getState();
   const notebook = state.document.get('notebook');
   const cells = notebook.get('cellMap');
-  notebook.get('cellOrder').filter((cellID) =>
+  notebook.get('cellOrder').filter(cellID =>
     cells.getIn([cellID, 'cell_type']) === 'code')
-      .map((cellID) => store.dispatch(
+      .map(cellID => store.dispatch(
         executeCell(
           cellID,
           cells.getIn([cellID, 'source'])
@@ -133,7 +204,16 @@ export function dispatchRunAll(store) {
 export function dispatchClearAll(store) {
   const state = store.getState();
   const notebook = state.document.get('notebook');
-  notebook.get('cellOrder').map((value) => store.dispatch(clearCellOutput(value)));
+  notebook.get('cellOrder').map(value => store.dispatch(clearOutputs(value)));
+}
+
+export function dispatchUnhideAll(store) {
+  const state = store.getState();
+  const notebook = state.document.get('notebook');
+  const cells = notebook.get('cellMap');
+  notebook.get('cellOrder')
+    .filter(cellID => cells.getIn([cellID, 'metadata', 'inputHidden']))
+    .map(cellID => store.dispatch(changeInputVisibility(cellID)));
 }
 
 export function dispatchKillKernel(store) {
@@ -154,26 +234,6 @@ export function dispatchInterruptKernel(store) {
   }
 }
 
-export function dispatchRestartKernel(store) {
-  const state = store.getState();
-  const notificationSystem = state.app.get('notificationSystem');
-  const spawnOptions = {};
-  if (state && state.document && state.metadata.get('filename')) {
-    spawnOptions.cwd = path.dirname(path.resolve(state.metadata.filename));
-  }
-
-  store.dispatch(killKernel);
-  store.dispatch(newKernel(state.app.kernelSpecName, spawnOptions));
-
-  notificationSystem.addNotification({
-    title: 'Kernel Restarted',
-    message: `Kernel ${state.app.kernelSpecName} has been restarted.`,
-    dismissible: true,
-    position: 'tr',
-    level: 'success',
-  });
-}
-
 export function dispatchRestartClearAll(store) {
   dispatchRestartKernel(store);
   dispatchClearAll(store);
@@ -187,38 +247,27 @@ export function dispatchZoomOut() {
   webFrame.setZoomLevel(webFrame.getZoomLevel() - 1);
 }
 
-export function dispatchDuplicate(store) {
-  const state = store.getState();
-  const notificationSystem = state.app.get('notificationSystem');
-  const filename = state.metadata.get('filename');
-  if (filename) {
-    copyNotebook(filename).then((value) => {
-      launchFilename(value);
-    });
-  } else {
-    notificationSystem.addNotification({
-      title: 'Can\'t Duplicate Unsaved Notebook',
-      message: 'A notebook must be saved before it can be duplicated.',
-      dismissble: true,
-      position: 'tr',
-      level: 'warning',
-    });
-  }
+export function dispatchZoomReset() {
+  webFrame.setZoomLevel(0);
 }
 
 export function dispatchSetTheme(store, evt, theme) {
   store.dispatch(setTheme(theme));
 }
 
+export function dispatchSetCursorBlink(store, evt, value) {
+  store.dispatch(setCursorBlink(value));
+}
+
 export function dispatchCopyCell(store) {
   const state = store.getState();
-  const focused = state.document.get('focusedCell');
+  const focused = state.document.get('cellFocused');
   store.dispatch(copyCell(focused));
 }
 
 export function dispatchCutCell(store) {
   const state = store.getState();
-  const focused = state.document.get('focusedCell');
+  const focused = state.document.get('cellFocused');
   store.dispatch(cutCell(focused));
 }
 
@@ -228,27 +277,55 @@ export function dispatchPasteCell(store) {
 
 export function dispatchCreateCellAfter(store) {
   const state = store.getState();
-  const focused = state.document.get('focusedCell');
-  store.dispatch(createCellAfter(focused));
+  const focused = state.document.get('cellFocused');
+  store.dispatch(createCellAfter('code', focused));
+}
+
+export function dispatchCreateTextCellAfter(store) {
+  const state = store.getState();
+  const focused = state.document.get('cellFocused');
+  store.dispatch(createCellAfter('markdown', focused));
+}
+
+export function dispatchLoad(store, event, filename) {
+  store.dispatch(load(filename));
+}
+
+export function dispatchNewNotebook(store, event, kernelSpecName) {
+  store.dispatch(newNotebook(kernelSpecName, cwdKernelFallback()));
+}
+
+
+export function dispatchLoadConfig(store) {
+  store.dispatch(loadConfig());
 }
 
 export function initMenuHandlers(store) {
   ipc.on('menu:new-kernel', dispatchNewKernel.bind(null, store));
   ipc.on('menu:run-all', dispatchRunAll.bind(null, store));
+  ipc.on('menu:run-all-below', dispatchRunAllBelow.bind(null, store));
   ipc.on('menu:clear-all', dispatchClearAll.bind(null, store));
+  ipc.on('menu:unhide-all', dispatchUnhideAll.bind(null, store));
   ipc.on('menu:save', dispatchSave.bind(null, store));
   ipc.on('menu:save-as', dispatchSaveAs.bind(null, store));
   ipc.on('menu:new-code-cell', dispatchCreateCellAfter.bind(null, store));
+  ipc.on('menu:new-text-cell', dispatchCreateTextCellAfter.bind(null, store));
   ipc.on('menu:copy-cell', dispatchCopyCell.bind(null, store));
   ipc.on('menu:cut-cell', dispatchCutCell.bind(null, store));
   ipc.on('menu:paste-cell', dispatchPasteCell.bind(null, store));
-  ipc.on('menu:duplicate-notebook', dispatchDuplicate.bind(null, store));
   ipc.on('menu:kill-kernel', dispatchKillKernel.bind(null, store));
   ipc.on('menu:interrupt-kernel', dispatchInterruptKernel.bind(null, store));
   ipc.on('menu:restart-kernel', dispatchRestartKernel.bind(null, store));
   ipc.on('menu:restart-and-clear-all', dispatchRestartClearAll.bind(null, store));
-  ipc.on('menu:publish:gist', dispatchPublishGist.bind(null, store));
+  ipc.on('menu:publish:gist', dispatchPublishAnonGist.bind(null, store));
   ipc.on('menu:zoom-in', dispatchZoomIn.bind(null, store));
   ipc.on('menu:zoom-out', dispatchZoomOut.bind(null, store));
+  ipc.on('menu:zoom-reset', dispatchZoomReset.bind(null, store));
   ipc.on('menu:theme', dispatchSetTheme.bind(null, store));
+  ipc.on('menu:set-blink-rate', dispatchSetCursorBlink.bind(null, store));
+  ipc.on('menu:github:auth', dispatchPublishUserGist.bind(null, store));
+  // OCD: This is more like the registration of main -> renderer thread
+  ipc.on('main:load', dispatchLoad.bind(null, store));
+  ipc.on('main:load-config', dispatchLoadConfig.bind(null, store));
+  ipc.on('main:new', dispatchNewNotebook.bind(null, store));
 }

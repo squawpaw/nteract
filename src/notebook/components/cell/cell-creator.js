@@ -1,17 +1,26 @@
+// @flow
 import React from 'react';
-import PureRenderMixin from 'react-addons-pure-render-mixin';
 
 import CellCreatorButtons from './cell-creator-buttons';
 
-export default class CellCreator extends React.Component {
-  static propTypes = {
-    above: React.PropTypes.bool,
-    id: React.PropTypes.string,
-  };
+type Props = {
+    above: boolean,
+    id: string,
+};
 
-  constructor() {
+type State = {
+    show: boolean,
+};
+
+export default class CellCreator extends React.PureComponent {
+  props: Props;
+  state: State;
+  setHoverElement: (el: HTMLElement) => void;
+  updateVisibility: (mouseEvent: MouseEvent) => void;
+  hoverElement: Object;
+
+  constructor(): void {
     super();
-    this.shouldComponentUpdate = PureRenderMixin.shouldComponentUpdate.bind(this);
     this.setHoverElement = this.setHoverElement.bind(this);
     this.updateVisibility = this.updateVisibility.bind(this);
   }
@@ -20,7 +29,7 @@ export default class CellCreator extends React.Component {
     show: false,
   };
 
-  componentDidMount() {
+  componentDidMount(): void {
     // Listen to the page level mouse move event and manually check for
     // intersection because we don't want the hover region to actually capture
     // any mouse events.  The hover region is an invisible element that
@@ -28,15 +37,15 @@ export default class CellCreator extends React.Component {
     document.addEventListener('mousemove', this.updateVisibility, false);
   }
 
-  componentWillUnmount() {
+  componentWillUnmount(): void {
     document.removeEventListener('mousemove', this.updateVisibility);
   }
 
-  setHoverElement(el) {
+  setHoverElement(el: HTMLElement): void {
     this.hoverElement = el;
   }
 
-  updateVisibility(mouseEvent) {
+  updateVisibility(mouseEvent: MouseEvent): void {
     if (this.hoverElement) {
       const x = mouseEvent.clientX;
       const y = mouseEvent.clientY;
@@ -48,7 +57,7 @@ export default class CellCreator extends React.Component {
   }
 
 
-  render() {
+  render(): ?React.Element<any> {
     return (
       <div className="creator-hover-mask">
         <div className="creator-hover-region" ref={this.setHoverElement}>

@@ -6,7 +6,6 @@ import Rx from 'rxjs/Rx';
 
 const Observable = Rx.Observable;
 
-// TODO: the session ID should likely be in the state tree, not a singleton
 export const session = uuid.v4();
 
 export function getUsername() {
@@ -14,9 +13,9 @@ export function getUsername() {
     process.env.USERNAME;
 }
 
-export function createMessage(msg_type) {
+export function createMessage(msg_type, fields) {
   const username = getUsername();
-  return {
+  return Object.assign({
     header: {
       username,
       session,
@@ -28,26 +27,7 @@ export function createMessage(msg_type) {
     metadata: {},
     parent_header: {},
     content: {},
-  };
-}
-
-export function createExecuteRequest(code) {
-  const executeRequest = createMessage('execute_request');
-  executeRequest.content = {
-    code,
-    silent: false,
-    store_history: true,
-    user_expressions: {},
-    allow_stdin: false,
-    stop_on_error: false,
-  };
-  return executeRequest;
-}
-
-export function msgSpecToNotebookFormat(msg) {
-  return Object.assign({}, msg.content, {
-    output_type: msg.header.msg_type,
-  });
+  }, fields);
 }
 
 /**
@@ -57,10 +37,10 @@ export function msgSpecToNotebookFormat(msg) {
  */
 export function childOf(parentMessage) {
   const parentMessageID = parentMessage.header.msg_id;
-  return Observable.create(subscriber => {
+  return Observable.create((subscriber) => {
     // since we're in an arrow function `this` is from the outer scope.
     // save our inner subscription
-    const subscription = this.subscribe(msg => {
+    const subscription = this.subscribe((msg) => {
       if (!msg.parent_header || !msg.parent_header.msg_id) {
         subscriber.error(new Error('no parent_header.msg_id on message'));
         return;
@@ -87,10 +67,10 @@ export function childOf(parentMessage) {
  * @return {Observable}                 the resulting observable
  */
 export function ofMessageType(messageTypes) {
-  return Observable.create(subscriber => {
+  return Observable.create((subscriber) => {
     // since we're in an arrow function `this` is from the outer scope.
     // save our inner subscription
-    const subscription = this.subscribe(msg => {
+    const subscription = this.subscribe((msg) => {
       if (!msg.header || !msg.header.msg_type) {
         subscriber.error(new Error('no header.msg_type on message'));
         return;

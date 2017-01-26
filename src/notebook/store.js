@@ -1,23 +1,13 @@
 import { createStore, applyMiddleware } from 'redux';
-import { createEpicMiddleware, combineEpics } from 'redux-observable';
 
-import { triggerModified } from './middlewares';
+import middlewares from './middlewares';
 import rootReducer from './reducers';
 
-import epics from './epics';
+/* istanbul ignore if -- only used for debugging */
+if (process.env.DEBUG === 'true') {
+  const logger = require('./logger'); // eslint-disable-line global-require
 
-const rootEpic = combineEpics(...epics);
-
-const middlewares = [
-  createEpicMiddleware(rootEpic),
-  triggerModified,
-];
-
-if (process.env.NODE_ENV === 'development') {
-  const createLogger = require('redux-logger');  // eslint-disable-line
-
-  const logger = createLogger();
-  middlewares.push(logger);
+  middlewares.push(logger());
 }
 
 export default function configureStore(initialState) {

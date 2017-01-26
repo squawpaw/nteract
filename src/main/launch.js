@@ -2,38 +2,45 @@ import path from 'path';
 
 import { shell, BrowserWindow } from 'electron';
 
-import { emptyNotebook, emptyCodeCell, appendCell, fromJS } from 'commutable';
-import * as immutable from 'immutable';
-import fs from 'fs';
+let launchIpynb;
 
-const log = require('electron-log');
+export function getPath(url) {
+  const nUrl = url.substring(url.indexOf('static'), path.length);
+  return path.join(__dirname, '..', '..', nUrl.replace('static/', ''));
+}
 
 export function deferURL(event, url) {
   event.preventDefault();
-  shell.openExternal(url);
+  if (!url.startsWith('file:')) {
+    shell.openExternal(url);
+  } else if (url.endsWith('.ipynb')) {
+    launchIpynb(getPath(url));
+  }
 }
 
-export function launch(notebook, filename) {
-  let iconPath = '';
-  if (process.argv[0].match(/electron/i)) {
-    iconPath = './static/icon.png';
-  } else {
-    iconPath = '.cd/resources/app/static/icon.png';
-  }
+const iconPath = path.join(__dirname, '..', '..', 'static', 'icon.png');
 
+const initContextMenu = require('electron-context-menu');
+
+// Setup right-click context menu for all BrowserWindows
+initContextMenu();
+
+export function launch(filename) {
   let win = new BrowserWindow({
     width: 800,
     height: 1000,
-    title: !filename ? 'Untitled' : path.relative('.', filename.replace(/.ipynb$/, '')),
     icon: iconPath,
+    title: 'nteract',
   });
 
   const index = path.join(__dirname, '..', '..', 'static', 'index.html');
   win.loadURL(`file://${index}`);
 
-  // When the page finishes loading, send the notebook data via IPC
   win.webContents.on('did-finish-load', () => {
-    win.webContents.send('main:load', { notebook: notebook.toJS(), filename });
+    if (filename) {
+      win.webContents.send('main:load', filename);
+    }
+    win.webContents.send('main:load-config');
   });
 
   win.webContents.on('will-navigate', deferURL);
@@ -44,44 +51,12 @@ export function launch(notebook, filename) {
   });
   return win;
 }
+launchIpynb = launch;
 
-export function launchNewNotebook(kernelspec) {
-  const starterNotebook = appendCell(emptyNotebook, emptyCodeCell);
-
-  let nb = starterNotebook;
-
-  if (kernelspec && kernelspec.name && kernelspec.spec
-                 && kernelspec.spec.language && kernelspec.spec.display_name) {
-    nb = starterNotebook.setIn(['metadata', 'kernelspec'], immutable.fromJS({
-      name: kernelspec.name,
-      language: kernelspec.spec.language,
-      display_name: kernelspec.spec.display_name,
-    }));
-  }
-
-  return Promise.resolve(launch(nb));
-}
-
-export function launchFilename(filename) {
-  if (!filename) {
-    const warning = 'WARNING: launching a notebook with no filename and no kernelspec';
-    log.info(warning); // Since it's not really a warning, this is our default case
-    console.warn(warning);
-    return Promise.resolve(launchNewNotebook());
-  }
-
-  return new Promise((resolve, reject) => {
-    fs.readFile(filename, {}, (err, data) => {
-      if (err) {
-        reject(err);
-        const warning = 'Filename not resolved, launching an empty Notebook.';
-        // TODO: This should open a new notebook with the given filename
-        log.warn(warning);
-        console.warn(warning);
-        launchNewNotebook('python3');
-      } else {
-        resolve(launch(fromJS(JSON.parse(data)), filename));
-      }
-    });
+export function launchNewNotebook(kernelSpecName) {
+  const win = launch();
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.send('main:new', kernelSpecName);
   });
+  return win;
 }

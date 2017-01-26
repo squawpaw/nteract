@@ -1,12 +1,13 @@
 import { shell } from 'electron';
 
 import {
-  overwriteMetadata,
-} from '../actions';
+  PUBLISH_USER_GIST, PUBLISH_ANONYMOUS_GIST
+} from './../constants';
 
 import {
-  SET_GITHUB,
-} from '../constants';
+  overwriteMetadata,
+  deleteMetadata,
+} from '../actions';
 
 const commutable = require('commutable');
 const path = require('path');
@@ -17,39 +18,15 @@ const Observable = Rx.Observable;
 
 const Github = require('github');
 
-export const githubAuthObservable = (authOptions) =>
-  Observable.create(observer => {
-    if (authOptions.token && authOptions.type) {
-      observer.next(new Github(authOptions));
-    } else {
-      observer.next(new Github());
-    }
-    observer.complete();
-  });
 
-export const setGithub = (github) => ({
-  type: SET_GITHUB,
-  github,
-});
-
-export const PUBLISH_GIST = 'PUBLISH_GIST';
-
-export const initialGitHubAuthEpic = () => {
-  const auth = {};
-  if (process.env.GITHUB_TOKEN) {
-    auth.type = 'oauth';
-    auth.token = process.env.GITHUB_TOKEN;
-  }
-  return githubAuthObservable(auth)
-    .catch(err => {
-      // TODO: Prompt?
-      console.error(err);
-      return new Github(); // Fall back to no auth
-    })
-    .map(setGithub);
-};
-
-function notifyUser(filename, gistURL, gistID, notificationSystem) {
+/**
+ * Notify the notebook user that it has been published as a gist.
+ * @param {string} filename - Filename of the notebook.
+ * @param {string} gistID - ID of the published gist, given after URL
+ * @param {object} notificationSystem - To be passed information for
+ * notification of the user that the gist has been published.
+ */
+export function notifyUser(filename, gistID, notificationSystem) {
   notificationSystem.addNotification({
     title: 'Gist uploaded',
     message: `${filename} is ready`,
@@ -65,103 +42,130 @@ function notifyUser(filename, gistURL, gistID, notificationSystem) {
   });
 }
 
-function createGistCallback(hotOffThePresses, observer, filename, notificationSystem) {
+/**
+ * Callback function to be used in publishNotebookObservable such that the
+ * response from the github API can be used for user notification.
+ * @param {boolean} firstTimePublish - If false, overwrite gist_id metdata.
+ * @param {object} observer - The publishNotebookObserver that will be
+ * completed after the callback.
+ * @param {string} filename - Filename of the notebook.
+ * @param {function} notificationSystem - To be passed information for
+ * notification of the user that the gist has been published.
+ * @return callbackFunction for use in publishNotebookObservable
+ */
+export function createGistCallback(observer, filename, notificationSystem) {
   return function gistCallback(err, response) {
     if (err) {
       observer.error(err);
       observer.complete();
       return;
     }
-
     const gistID = response.id;
-    const gistURL = response.html_url;
-
-    notifyUser(filename, gistURL, gistID, notificationSystem);
-    if (hotOffThePresses) {
-      // TODO: Move this up and out to be handled as a return on the observable
-      observer.next(overwriteMetadata('gist_id', gistID));
-    }
+    observer.next(overwriteMetadata('gist_id', gistID));
+    notifyUser(filename, gistID, notificationSystem);
+    observer.complete();
   };
 }
 
-export function publishNotebookObservable(github, notebook, filepath, notificationSystem) {
+/**
+ * Notebook Observable for the purpose of tracking every time a user
+ * wishes to publish a gist.
+ * @param {object} github - The github api for authenticating and publishing
+ * the gist.
+ * @param {object} notebook - The notebook to be converted to its JSON.
+ * @param {string} filename - The filename of the notebook to be published.
+ * @param {function} notificationSystem - To be passed information for
+ * notification of the user that the gist has been published.
+ */
+export function publishNotebookObservable(github, notebook, filepath,
+  notificationSystem, publishAsUser) {
   return Rx.Observable.create((observer) => {
-    const notebookString = JSON.stringify(commutable.toJS(notebook), undefined, 1);
+    const notebookString = JSON.stringify(
+      commutable.toJS(notebook.update('cellMap', cells =>
+        cells.map(value =>
+          value
+            .deleteIn(['metadata', 'inputHidden'])
+            .deleteIn(['metadata', 'outputHidden'])
+            .delete(['metadata', 'status'])))),
+      undefined,
+      1);
 
-    let filename;
-
-    if (filepath) {
-      filename = path.parse(filepath).base;
-    } else {
-      filename = 'Untitled.ipynb';
-    }
-
+    const filename = filepath ? path.parse(filepath).base : 'Untitled.ipynb';
     const files = {};
     files[filename] = { content: notebookString };
 
+    if (publishAsUser) {
+      github.users.get({}, (err, res) => {
+        if (err) throw err;
+        notificationSystem.addNotification({
+          title: 'Authenticated',
+          message: `Authenticated as ${res.login}`,
+          level: 'info',
+        });
+        if (notebook.getIn(['metadata', 'github_username']) !== (res.login || undefined)) {
+          observer.next(overwriteMetadata('github_username', res.login));
+          observer.next(deleteMetadata('gist_id'));
+        }
+      });
+    }
     notificationSystem.addNotification({
       title: 'Uploading gist...',
       message: 'Your notebook is being uploaded as a GitHub gist',
       level: 'info',
     });
+    // Already in a gist belonging to the user, update the gist
 
-    // Already in a gist, update the gist
-    if (notebook.hasIn(['metadata', 'gist_id'])) {
-      const gistRequest = {
-        files,
-        id: notebook.getIn(['metadata', 'gist_id']),
-      };
+    const gistRequest = notebook.hasIn(['metadata', 'gist_id']) ?
+      { files, id: notebook.getIn(['metadata', 'gist_id']), public: false } :
+      { files, public: false };
+    if (gistRequest.id) {
       github.gists.edit(gistRequest,
-        createGistCallback(false, observer, filename, notificationSystem));
+        createGistCallback(observer, filename, notificationSystem));
     } else {
-      const gistRequest = {
-        files,
-        public: false,
-      };
       github.gists.create(gistRequest,
-        createGistCallback(true, observer, filename, notificationSystem));
+        createGistCallback(observer, filename, notificationSystem));
     }
   });
 }
 
+/**
+ * Handle gist errors for the publish epic.
+ * @param  {String} error - Error response to be parsed and handled.
+ *
+ */
+export function handleGistError(err) {
+  return Observable.of({ type: 'ERROR', payload: err, err: true });
+}
 
-export const publishEpic = (action$, store) =>
-  action$.ofType(PUBLISH_GIST)
-    .mergeMap(() => {
-      // TODO: Determine if action should have the notebook or if it should be pulled from store
-      const state = store.getState();
-      const notebook = state.document.get('notebook');
-      const filename = state.metadata.get('filename');
-      const github = state.app.get('github');
-      const notificationSystem = state.app.get('notificationSystem');
+/**
+ * Handle user vs. anonymous gist actions in publishEpic
+ * @param {action} action - The action being processed by the epic.
+ * @param {store} reduxStore - The store containing state data.
+ * return {Observable} publishNotebookObservable with appropriate parameters.
+*/
+export function handleGistAction(store, action) {
+  const github = new Github();
+  const state = store.getState();
+  const notebook = state.document.get('notebook');
+  const filename = state.metadata.get('filename');
+  const notificationSystem = state.app.get('notificationSystem');
+  let publishAsUser = false;
+  if (action.type === 'PUBLISH_USER_GIST') {
+    const githubToken = state.app.get('token');
+    github.authenticate({ type: 'oauth', token: githubToken });
+    publishAsUser = true;
+  }
+  return publishNotebookObservable(github, notebook, filename,
+                                   notificationSystem, publishAsUser);
+}
 
-      return publishNotebookObservable(github, notebook, filename, notificationSystem);
-    })
-    .catch((err) => {
-      const state = store.getState();
-      const notificationSystem = state.app.get('notificationSystem');
-      // TODO: Let this go into the general error flow
-      if (err.message) {
-        const githubError = JSON.parse(err.message);
-        if (githubError.message === 'Bad credentials') {
-          notificationSystem.addNotification({
-            title: 'Bad credentials',
-            message: 'Unable to authenticate with your credentials.\n' +
-                     'What do you have $GITHUB_TOKEN set to?',
-            level: 'error',
-          });
-          return;
-        }
-        notificationSystem.addNotification({
-          title: 'Publication Error',
-          message: githubError.message,
-          level: 'error',
-        });
-        return;
-      }
-      notificationSystem.addNotification({
-        title: 'Unknown Publication Error',
-        message: err.toString(),
-        level: 'error',
-      });
-    });
+/**
+ * Epic to capture the end to end action of publishing and receiving the
+ * response from the Github API.
+ */
+export const publishEpic = (action$, store) => {
+  const boundHandleGistAction = handleGistAction.bind(null, store);
+  return action$.ofType(PUBLISH_USER_GIST, PUBLISH_ANONYMOUS_GIST)
+    .mergeMap(action => boundHandleGistAction(action))
+    .catch(handleGistError);
+};
