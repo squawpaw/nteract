@@ -11,10 +11,23 @@ import { tildify, launchFilename } from './native-window';
 import { executeCell } from './epics/execute';
 
 import {
+  setTheme,
+} from './epics/theming';
+
+import {
+  PUBLISH_GIST,
+} from './epics/github-publish';
+
+
+import {
   clearCellOutput,
   newKernel,
   killKernel,
   interruptKernel,
+  copyCell,
+  cutCell,
+  pasteCell,
+  createCellAfter,
 } from './actions';
 
 import {
@@ -23,8 +36,6 @@ import {
 } from './epics/saving';
 
 import { copyNotebook } from './utils';
-
-import publish from './publication/github';
 
 const BrowserWindow = remote.BrowserWindow;
 
@@ -102,41 +113,7 @@ export function dispatchNewKernel(store, evt, name) {
 }
 
 export function dispatchPublishGist(store) {
-  const state = store.getState();
-  const filename = state.metadata.get('filename');
-  const notebook = state.document.get('notebook');
-  const notificationSystem = state.app.get('notificationSystem');
-  const github = state.app.get('github');
-
-  const agenda = publish(github, notebook, filename, notificationSystem);
-
-  agenda.subscribe((action) => {
-    store.dispatch(action);
-  }, (err) => {
-    if (err.message) {
-      const githubError = JSON.parse(err.message);
-      if (githubError.message === 'Bad credentials') {
-        notificationSystem.addNotification({
-          title: 'Bad credentials',
-          message: 'Unable to authenticate with your credentials.\n' +
-                   'What do you have $GITHUB_TOKEN set to?',
-          level: 'error',
-        });
-        return;
-      }
-      notificationSystem.addNotification({
-        title: 'Publication Error',
-        message: githubError.message,
-        level: 'error',
-      });
-      return;
-    }
-    notificationSystem.addNotification({
-      title: 'Unknown Publication Error',
-      message: err.toString(),
-      level: 'error',
-    });
-  });
+  store.dispatch({ type: PUBLISH_GIST });
 }
 
 export function dispatchRunAll(store) {
@@ -229,12 +206,42 @@ export function dispatchDuplicate(store) {
   }
 }
 
+export function dispatchSetTheme(store, evt, theme) {
+  store.dispatch(setTheme(theme));
+}
+
+export function dispatchCopyCell(store) {
+  const state = store.getState();
+  const focused = state.document.get('focusedCell');
+  store.dispatch(copyCell(focused));
+}
+
+export function dispatchCutCell(store) {
+  const state = store.getState();
+  const focused = state.document.get('focusedCell');
+  store.dispatch(cutCell(focused));
+}
+
+export function dispatchPasteCell(store) {
+  store.dispatch(pasteCell());
+}
+
+export function dispatchCreateCellAfter(store) {
+  const state = store.getState();
+  const focused = state.document.get('focusedCell');
+  store.dispatch(createCellAfter(focused));
+}
+
 export function initMenuHandlers(store) {
   ipc.on('menu:new-kernel', dispatchNewKernel.bind(null, store));
   ipc.on('menu:run-all', dispatchRunAll.bind(null, store));
   ipc.on('menu:clear-all', dispatchClearAll.bind(null, store));
   ipc.on('menu:save', dispatchSave.bind(null, store));
   ipc.on('menu:save-as', dispatchSaveAs.bind(null, store));
+  ipc.on('menu:new-code-cell', dispatchCreateCellAfter.bind(null, store));
+  ipc.on('menu:copy-cell', dispatchCopyCell.bind(null, store));
+  ipc.on('menu:cut-cell', dispatchCutCell.bind(null, store));
+  ipc.on('menu:paste-cell', dispatchPasteCell.bind(null, store));
   ipc.on('menu:duplicate-notebook', dispatchDuplicate.bind(null, store));
   ipc.on('menu:kill-kernel', dispatchKillKernel.bind(null, store));
   ipc.on('menu:interrupt-kernel', dispatchInterruptKernel.bind(null, store));
@@ -243,4 +250,5 @@ export function initMenuHandlers(store) {
   ipc.on('menu:publish:gist', dispatchPublishGist.bind(null, store));
   ipc.on('menu:zoom-in', dispatchZoomIn.bind(null, store));
   ipc.on('menu:zoom-out', dispatchZoomOut.bind(null, store));
+  ipc.on('menu:theme', dispatchSetTheme.bind(null, store));
 }

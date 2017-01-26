@@ -1,8 +1,10 @@
 import Immutable from 'immutable';
 
+const Github = require('github');
+
 export const AppRecord = new Immutable.Record({
   executionState: 'not connected',
-  github: null,
+  github: new Github(), // default to no auth until setup
   channels: null,
   spawn: null,
   connectionFile: null,
@@ -10,6 +12,7 @@ export const AppRecord = new Immutable.Record({
   kernelSpecName: null,
   isSaving: false,
   modified: false,
+  theme: 'light',
 });
 
 export const DocumentRecord = new Immutable.Record({

@@ -8,12 +8,10 @@ import * as constants from '../constants';
 export default handleActions({
   [constants.SET_NOTEBOOK]: function setNotebook(state, action) {
     const notebook = action.data;
-    let cellStatuses = new Immutable.Map();
-    notebook.get('cellOrder').map((cellID) => {
-      cellStatuses = cellStatuses.setIn([cellID, 'outputHidden'], false)
-        .setIn([cellID, 'inputHidden'], false);
-      return cellStatuses;
-    });
+    const cellStatuses = notebook.get('cellOrder')
+      .reduce((statuses, cellID) =>
+        statuses.set(cellID, Immutable.fromJS({ outputHidden: false, inputHidden: false })),
+      new Immutable.Map());
 
     return state.set('notebook', notebook)
       .set('focusedCell', notebook.getIn(['cellOrder', 0]))
@@ -222,6 +220,14 @@ export default handleActions({
     const cellMap = state.getIn(['notebook', 'cellMap']);
     const cell = cellMap.get(id);
     return state.set('copied', new Immutable.Map({ id, cell }));
+  },
+  [constants.CUT_CELL]: function cutCell(state, action) {
+    const { id } = action;
+    const cellMap = state.getIn(['notebook', 'cellMap']);
+    const cell = cellMap.get(id);
+    return state
+      .set('copied', new Immutable.Map({ id, cell }))
+      .update('notebook', (notebook) => commutable.removeCell(notebook, id));
   },
   [constants.PASTE_CELL]: function pasteCell(state) {
     const copiedCell = state.getIn(['copied', 'cell']);

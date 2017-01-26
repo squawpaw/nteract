@@ -2,20 +2,35 @@ import React from 'react';
 
 const Plotly = require('plotly.js/dist/plotly');
 
-const MIMETYPE = 'application/json+plotly.v1';
+const MIMETYPE = 'application/vnd.plotly.v1+json';
 
 export class PlotlyTransform extends React.Component {
+  constructor() {
+    super();
+    this.getFigure = this.getFigure.bind(this);
+  }
+
   componentDidMount() {
-    const payload = this.props.data.toJS();
-    Plotly.newPlot(this.el, payload.data, payload.layout);
+    // Handle case of either string to be `JSON.parse`d or pure object
+    const figure = this.getFigure();
+    Plotly.newPlot(this.el, figure.data, figure.layout);
   }
 
   shouldComponentUpdate() {
     return false;
   }
 
+  getFigure() {
+    const figure = this.props.data;
+    if (typeof figure === 'string') {
+      return JSON.parse(figure);
+    }
+    // assume immutable.js
+    return figure.toJS();
+  }
+
   render() {
-    const { layout } = this.props.data.toJS();
+    const { layout } = this.getFigure();
     const style = {};
     if (layout && layout.height && !layout.autosize) {
       style.height = layout.height;

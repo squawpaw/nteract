@@ -119,6 +119,29 @@ export const edit = {
       accelerator: 'CmdOrCtrl+A',
       role: 'selectall',
     },
+    {
+      type: 'separator',
+    },
+    {
+      label: 'New Code Cell',
+      accelerator: 'CmdOrCtrl+Shift+N',
+      click: createSender('menu:new-code-cell'),
+    },
+    {
+      label: 'Copy Cell',
+      accelerator: 'CmdOrCtrl+Shift+C',
+      click: createSender('menu:copy-cell'),
+    },
+    {
+      label: 'Cut Cell',
+      accelerator: 'CmdOrCtrl+Shift+X',
+      click: createSender('menu:cut-cell'),
+    },
+    {
+      label: 'Paste Cell',
+      accelerator: 'CmdOrCtrl+Shift+V',
+      click: createSender('menu:paste-cell'),
+    },
   ],
 };
 

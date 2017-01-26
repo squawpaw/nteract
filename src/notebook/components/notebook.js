@@ -18,8 +18,6 @@ import CellCreator from './cell/cell-creator';
 import {
   focusNextCell,
   moveCell,
-  copyCell,
-  pasteCell,
 } from '../actions';
 import { executeCell } from '../epics/execute';
 
@@ -29,17 +27,16 @@ import complete from '../kernel/completion';
 require('codemirror/mode/markdown/markdown');
 
 const mapStateToProps = (state) => ({
-  theme: state.document.theme,
+  theme: state.app.theme,
   notebook: state.document.get('notebook'),
   channels: state.app.channels,
   cellPagers: state.document.get('cellPagers'),
   focusedCell: state.document.get('focusedCell'),
   cellStatuses: state.document.get('cellStatuses'),
   stickyCells: state.document.get('stickyCells'),
-  notificationSystem: state.app.notificationSystem,
 });
 
-class Notebook extends React.Component {
+export class Notebook extends React.Component {
   static propTypes = {
     channels: React.PropTypes.any,
     dispatch: React.PropTypes.func,
@@ -51,17 +48,17 @@ class Notebook extends React.Component {
     stickyCells: React.PropTypes.instanceOf(Immutable.Map),
     focusedCell: React.PropTypes.string,
     theme: React.PropTypes.string,
-    notificationSystem: React.PropTypes.any,
+    CellComponent: React.PropTypes.any,
   };
 
   static defaultProps = {
     displayOrder,
     transforms,
+    CellComponent: DraggableCell,
   };
 
-  static propsTypes = {
-    dispatch: React.PropTypes.func,
-    notificationSystem: React.PropTypes.any,
+  static contextTypes = {
+    store: React.PropTypes.object,
   };
 
   constructor() {
@@ -73,8 +70,6 @@ class Notebook extends React.Component {
     this.keyDown = this.keyDown.bind(this);
     this.moveCell = this.moveCell.bind(this);
     this.getCompletions = this.getCompletions.bind(this);
-    this.copyCell = this.copyCell.bind(this);
-    this.pasteCell = this.pasteCell.bind(this);
   }
 
   componentDidMount() {
@@ -131,26 +126,11 @@ class Notebook extends React.Component {
   }
 
   moveCell(sourceId, destinationId, above) {
-    this.props.dispatch(moveCell(sourceId, destinationId, above));
+    this.context.store.dispatch(moveCell(sourceId, destinationId, above));
   }
-
-  copyCell() {
-    this.props.dispatch(copyCell(this.props.focusedCell));
-  }
-
-  pasteCell() {
-    this.props.dispatch(pasteCell());
-  }
-
 
   keyDown(e) {
     if (e.keyCode !== 13) {
-      const cmdOrCtrl = e.ctrlKey || e.metaKey;
-      if (cmdOrCtrl && e.shiftKey && e.keyCode === 67) {
-        this.copyCell();
-      } else if (cmdOrCtrl && e.shiftKey && e.keyCode === 86) {
-        this.pasteCell();
-      }
       return;
     }
 
@@ -170,11 +150,11 @@ class Notebook extends React.Component {
     const cell = cellMap.get(id);
 
     if (e.shiftKey) {
-      this.props.dispatch(focusNextCell(this.props.focusedCell, true));
+      this.context.store.dispatch(focusNextCell(this.props.focusedCell, true));
     }
 
     if (cell.get('cell_type') === 'code') {
-      this.props.dispatch(
+      this.context.store.dispatch(
         executeCell(
           id,
           cell.get('source')
@@ -226,6 +206,8 @@ class Notebook extends React.Component {
       pagers: this.props.cellPagers.get(id),
       focusedCell: this.props.focusedCell,
       running: this.props.cellStatuses.getIn([id, 'status']) === 'busy',
+      // Theme is passed through to let the Editor component know when to
+      // tell CodeMirror to remeasure
       theme: this.props.theme,
     };
   }
@@ -234,13 +216,16 @@ class Notebook extends React.Component {
     const cellMap = this.props.notebook.get('cellMap');
     const cell = cellMap.get(id);
     const isStickied = this.props.stickyCells.get(id);
+
+    const CellComponent = this.props.CellComponent;
+
     return (
       <div key={`cell-container-${id}`} ref="container">
         {isStickied ?
           <div className="cell-placeholder">
             <span className="octicon octicon-link-external" />
           </div> :
-          <DraggableCell {...this.createCellProps(id, cell)} />}
+          <CellComponent {...this.createCellProps(id, cell)} />}
         <CellCreator key={`creator-${id}`} id={id} above={false} />
       </div>);
   }
@@ -262,15 +247,18 @@ class Notebook extends React.Component {
     }
     const cellOrder = this.props.notebook.get('cellOrder');
     return (
-      <div className="notebook" ref="cells">
-        <div className="sticky-cells-placeholder" ref="sticky-cells-placeholder" />
-        <div className="sticky-cell-container" ref="sticky-cell-container">
-          {cellOrder
-            .filter(id => this.props.stickyCells.get(id))
-            .map(this.createStickyCellElement)}
+      <div>
+        <div className="notebook" ref="cells">
+          <div className="sticky-cells-placeholder" ref="sticky-cells-placeholder" />
+          <div className="sticky-cell-container" ref="sticky-cell-container">
+            {cellOrder
+              .filter(id => this.props.stickyCells.get(id))
+              .map(this.createStickyCellElement)}
+          </div>
+          <CellCreator id={cellOrder.get(0, null)} above />
+          {cellOrder.map(this.createCellElement)}
         </div>
-        <CellCreator id={cellOrder.get(0, null)} above />
-        {cellOrder.map(this.createCellElement)}
+        <link rel="stylesheet" href={`../static/styles/theme-${this.props.theme}.css`} />
       </div>
     );
   }
